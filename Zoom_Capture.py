@@ -5,6 +5,14 @@ from PIL import Image
 from datetime import datetime
 from google.cloud import vision
 
+# Define emotion likelihood values
+LIKELIHOOD_VALUES = {
+    "VERY_UNLIKELY": 0,
+    "UNLIKELY": 0.25,
+    "LIKELY": 0.75,
+    "VERY_LIKELY": 1
+}
+
 
 class VertexEmotionAnalyzer:
     def __init__(self):
@@ -44,6 +52,17 @@ class VertexEmotionAnalyzer:
         return analysis_results
 
 
+def emotion_change_alert(previous_emotions, current_emotions):
+    """Check if there is a significant change in emotions (greater than 0.5)."""
+    alert_messages = []
+    for emotion, current_likelihood in current_emotions.items():
+        current_value = LIKELIHOOD_VALUES.get(current_likelihood, 0)
+        previous_value = LIKELIHOOD_VALUES.get(previous_emotions.get(emotion, "VERY_UNLIKELY"), 0)
+        if abs(current_value - previous_value) > 0.5:
+            alert_messages.append(f"**Alert: {emotion} changed significantly from {previous_emotions[emotion]} to {current_likelihood}**")
+    return alert_messages
+
+
 def capture_and_analyze(interval=5, duration=60):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = f"captured_images_{timestamp}"
@@ -79,6 +98,8 @@ def capture_and_analyze(interval=5, duration=60):
 
     start_time = time.time()
     analysis_history = []
+    previous_top_emotions = {}
+    previous_bottom_emotions = {}
 
     try:
         while time.time() - start_time < duration:
@@ -98,24 +119,36 @@ def capture_and_analyze(interval=5, duration=60):
                 top_results = analyzer.analyze_emotions(top_filename)
                 bottom_results = analyzer.analyze_emotions(bottom_filename)
 
-                # Print results for the top screenshot
+                # Process top emotions
                 if top_results:
-                    top_emotions = top_results[0]['emotions']  # Assuming we only care about the first face
+                    top_emotions = top_results[0]['emotions']
                     print(f"\nCapture at {datetime.fromtimestamp(current_time).strftime('%H:%M:%S')}:")
                     print("You are displaying:")
                     for emotion, likelihood in top_emotions.items():
                         print(f" - {emotion}: {likelihood}")
-
+                    
+                    # Check for significant changes in top emotions
+                    top_alerts = emotion_change_alert(previous_top_emotions, top_emotions)
+                    for alert in top_alerts:
+                        print(alert)
+                    
+                    previous_top_emotions = top_emotions
                 else:
                     print("\nNo faces detected in the top capture.")
 
-                # Print results for the bottom screenshot
+                # Process bottom emotions
                 if bottom_results:
-                    bottom_emotions = bottom_results[0]['emotions']  # Assuming we only care about the first face
+                    bottom_emotions = bottom_results[0]['emotions']
                     print("They are expressing:")
                     for emotion, likelihood in bottom_emotions.items():
                         print(f" - {emotion}: {likelihood}")
+                    
+                    # Check for significant changes in bottom emotions
+                    bottom_alerts = emotion_change_alert(previous_bottom_emotions, bottom_emotions)
+                    for alert in bottom_alerts:
+                        print(alert)
 
+                    previous_bottom_emotions = bottom_emotions
                 else:
                     print("No faces detected in the bottom capture.")
 
