@@ -1,0 +1,10 @@
+
+[theme] # You have to add this line
+
+primaryColor = '#8E8D8A' # Beige
+
+backgroundColor = '#EAE7DC' # Beige
+
+secondaryBackgroundColor = '#D8C3A5' # Lighter Blue
+
+font = "serif"
