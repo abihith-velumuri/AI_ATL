@@ -1,11 +1,18 @@
 import mss
 import time
-from PIL import Image
 import os
-import cv2
-import numpy as np
+from PIL import Image
 from datetime import datetime
 from google.cloud import vision
+
+# Define emotion likelihood values
+LIKELIHOOD_VALUES = {
+    "VERY_UNLIKELY": 0,
+    "UNLIKELY": 0.25,
+    "LIKELY": 0.75,
+    "VERY_LIKELY": 1
+}
+
 
 class VertexEmotionAnalyzer:
     def __init__(self):
@@ -16,19 +23,19 @@ class VertexEmotionAnalyzer:
         """Send image to Vertex AI Vision API to detect faces and emotions."""
         with open(image_path, 'rb') as image_file:
             content = image_file.read()
-        
+
         image = vision.Image(content=content)
 
-        #  Vertex AI Vision API
+        # Vertex AI Vision API
         response = self.client.face_detection(image=image)
         faces = response.face_annotations
-        
-        #  API errors
+
+        # API errors
         if response.error.message:
             raise Exception(f"Error from Vertex AI Vision API: {response.error.message}")
 
         analysis_results = []
-        
+
         for face in faces:
             emotions = {
                 "joy": face.joy_likelihood.name,
@@ -36,15 +43,6 @@ class VertexEmotionAnalyzer:
                 "anger": face.anger_likelihood.name,
                 "surprise": face.surprise_likelihood.name
             }
-            print("joy:")
-            print( face.joy_likelihood.name)
-            print("sorrow::")
-            print( face.sorrow_likelihood.name)
-            print("anger:")
-            print( face.anger_likelihood.name)
-            print("surprise:")
-            print( face.surprise_likelihood.name)
-            print()
             face_result = {
                 "bounding_box": [(vertex.x, vertex.y) for vertex in face.bounding_poly.vertices],
                 "emotions": emotions
@@ -52,6 +50,17 @@ class VertexEmotionAnalyzer:
             analysis_results.append(face_result)
 
         return analysis_results
+
+
+def emotion_change_alert(previous_emotions, current_emotions):
+    """Check if there is a significant change in emotions (greater than 0.5)."""
+    alert_messages = []
+    for emotion, current_likelihood in current_emotions.items():
+        current_value = LIKELIHOOD_VALUES.get(current_likelihood, 0)
+        previous_value = LIKELIHOOD_VALUES.get(previous_emotions.get(emotion, "VERY_UNLIKELY"), 0)
+        if abs(current_value - previous_value) > 0.5:
+            alert_messages.append(f"**Alert: {emotion} changed significantly from {previous_emotions[emotion]} to {current_likelihood}**")
+    return alert_messages
 
 
 def capture_and_analyze(interval=5, duration=60):
@@ -62,77 +71,103 @@ def capture_and_analyze(interval=5, duration=60):
     analyzer = VertexEmotionAnalyzer()
 
     with mss.mss() as sct:
-        monitor = sct.monitors[1]  
-        bbox = {
+        monitor = sct.monitors[1]
+        width = monitor["width"]
+        height = monitor["height"]
+        
+        top_bbox = {
             "top": 0,
             "left": 0,
-            "width": monitor["width"],
-            "height": monitor["height"]
+            "width": width,
+            "height": height // 2
+        }
+
+        bottom_bbox = {
+            "top": height // 2,
+            "left": 0,
+            "width": width,
+            "height": height // 2
         }
 
     print(f"Starting capture with the following settings:")
-    print(f"Capturing entire screen: {bbox['width']}x{bbox['height']} pixels")
+    print(f"Capturing top half: {top_bbox['width']}x{top_bbox['height']} pixels")
+    print(f"Capturing bottom half: {bottom_bbox['width']}x{bottom_bbox['height']} pixels")
     print(f"Interval: {interval} seconds")
     print(f"Duration: {duration} seconds")
     print(f"Saving images to: {output_dir}")
 
     start_time = time.time()
     analysis_history = []
+    previous_top_emotions = {}
+    previous_bottom_emotions = {}
 
     try:
-        with mss.mss() as sct:
-            while time.time() - start_time < duration:
-                current_time = time.time()
-                try:
-                    screenshot = sct.grab(monitor)
-                    filename = os.path.join(output_dir, f'screenshot_{int(current_time)}.png')
-                    mss.tools.to_png(screenshot.rgb, screenshot.size, output=filename)
+        while time.time() - start_time < duration:
+            current_time = time.time()
+            try:
+                # Capture top half
+                top_screenshot = sct.grab(top_bbox)
+                top_filename = os.path.join(output_dir, f'top_screenshot_{int(current_time)}.png')
+                mss.tools.to_png(top_screenshot.rgb, top_screenshot.size, output=top_filename)
 
-                    results = analyzer.analyze_emotions(filename)
+                # Capture bottom half
+                bottom_screenshot = sct.grab(bottom_bbox)
+                bottom_filename = os.path.join(output_dir, f'bottom_screenshot_{int(current_time)}.png')
+                mss.tools.to_png(bottom_screenshot.rgb, bottom_screenshot.size, output=bottom_filename)
 
-                    if results:
-                        
-                        smiling_faces = sum(1 for face in results if face['emotions']['joy'] == 'VERY_LIKELY')
-                        total_faces = len(results)
+                # Analyze emotions for top and bottom screenshots
+                top_results = analyzer.analyze_emotions(top_filename)
+                bottom_results = analyzer.analyze_emotions(bottom_filename)
 
-                        print(f"\nCapture at {datetime.fromtimestamp(current_time).strftime('%H:%M:%S')}:")
-                        print(f"Detected {total_faces} faces, {smiling_faces} smiling")
+                # Process top emotions
+                if top_results:
+                    top_emotions = top_results[0]['emotions']
+                    print(f"\nCapture at {datetime.fromtimestamp(current_time).strftime('%H:%M:%S')}:")
+                    print("You are displaying:")
+                    for emotion, likelihood in top_emotions.items():
+                        print(f" - {emotion}: {likelihood}")
+                    
+                    # Check for significant changes in top emotions
+                    top_alerts = emotion_change_alert(previous_top_emotions, top_emotions)
+                    for alert in top_alerts:
+                        print(alert)
+                    
+                    previous_top_emotions = top_emotions
+                else:
+                    print("\nNo faces detected in the top capture.")
 
-                        analysis_history.append({
-                            'timestamp': current_time,
-                            'total_faces': total_faces,
-                            'smiling_faces': smiling_faces
-                        })
-                    else:
-                        print("\nNo faces detected in this capture")
+                # Process bottom emotions
+                if bottom_results:
+                    bottom_emotions = bottom_results[0]['emotions']
+                    print("They are expressing:")
+                    for emotion, likelihood in bottom_emotions.items():
+                        print(f" - {emotion}: {likelihood}")
+                    
+                    # Check for significant changes in bottom emotions
+                    bottom_alerts = emotion_change_alert(previous_bottom_emotions, bottom_emotions)
+                    for alert in bottom_alerts:
+                        print(alert)
 
-                    time.sleep(interval)
+                    previous_emotion_for_advice = previous_bottom_emotions
+                    post_emotion_for_advice = bottom_emotions
 
-                except KeyboardInterrupt:
-                    raise
-                except Exception as e:
-                    print(f"Error during capture: {e}")
-                    time.sleep(interval)
-                    continue
+                    
+
+                    previous_bottom_emotions = bottom_emotions
+                else:
+                    print("No faces detected in the bottom capture.")
+
+                time.sleep(interval)
+
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                print(f"Error during capture: {e}")
+                time.sleep(interval)
+                continue
 
     except KeyboardInterrupt:
         print("\nCapture stopped by user")
-
-    if analysis_history:
-        print("\nAnalysis Summary:")
-        total_captures = len(analysis_history)
-        total_faces_detected = sum(record['total_faces'] for record in analysis_history)
-        total_smiles_detected = sum(record['smiling_faces'] for record in analysis_history)
-
-        print(f"\nTotal captures: {total_captures}")
-        print(f"Total faces detected: {total_faces_detected}")
-        print(f"Total smiles detected: {total_smiles_detected}")
-        print(f"Average faces per capture: {total_faces_detected/total_captures:.1f}")
-        print(f"Average smiles per capture: {total_smiles_detected/total_captures:.1f}")
-
-        if total_faces_detected > 0:
-            smile_percentage = (total_smiles_detected / total_faces_detected) * 100
-            print(f"Smile percentage: {smile_percentage:.1f}%")
 
     print(f"\nAll captures have been saved to: {output_dir}")
 
