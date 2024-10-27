@@ -62,7 +62,6 @@ The future of AwkoTalko extends far beyond its current implementation:
 5. Allow for contextualization, many conversations are different depending on how close you are to someone on the situation in which you are talking to them, we want to add a context option to our app so that our AI model can make more informed predictions
 <br />
 
-<br>
 #### Long-term Vision:
 1. Create specialized versions for different use cases:
    - Educational environments
@@ -79,6 +78,7 @@ The future of AwkoTalko extends far beyond its current implementation:
    - Create a platform for users to share experiences
    - Develop best practices for different speaking scenarios
    - Establish partnerships with educational institutions and corporate training programs
+
 <br />
 
 <br>
